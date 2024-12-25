@@ -1,0 +1,344 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+The aim of analyzing the provided crime and temperature data is to gain insights into the relationship between various factors such as weather conditions and crime incidents.Explore patterns and trends in crime incidents.This will help identify areas with higher crime rates and understand the nature of incidents that occur.Provide recommendations for crime prevention: Based on our analysis, we aim to identify potential strategies or interventions that can help mitigate the impact of weather-related factors on crime.
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(tidytext)
+library(e1071)
+library(mlbench)
+library(ggplot2)
+library(gridExtra)
+
+```
+
+We have loaded the data of the temperature in which all the date , temperature , wind and its speed , pressure at sea level in hectopascals (hPa) , total cloud cover in octas , low cloud cover in octas , sunshine during in hour of that day , Visibility in kilometers, Snow depth in centimeters these are few column
+
+
+
+```{r}
+df<- read.csv("temp2023.csv")
+head(df)
+```
+
+
+
+
+```{r}
+df$Date <- as.Date(df$Date, format="%m/%d/%Y")
+df
+df_avg <- df %>%
+  group_by(month = format(Date, "%m"), year = format(Date, "%Y")) %>%
+  summarise(
+    across(
+      where(is.numeric),
+      mean,
+      na.rm = TRUE
+    ),
+    .groups = 'drop'
+  ) %>%
+  mutate(date_formatted = paste(year, month, sep="-"))
+
+df_avg$date_formatted
+
+
+df_avg%>%head(10)
+
+```
+```{r}
+df1<- read.csv("crime23.csv")
+
+df1%>%head(10)
+
+```
+
+
+
+```{r}
+merged_data <- merge(df_avg, df1, by.x="date_formatted", by.y="date", all=TRUE)
+merged_data%>%head(10)
+```
+
+
+```{r}
+names(merged_data)
+```
+
+
+
+```{r}
+merged_data %>%
+select(date_formatted) %>%
+count(date_formatted, sort = TRUE, name = "Count")%>%
+ggplot(aes(factor(date_formatted), Count, group = 1)) +     
+geom_bar(stat = "identity", fill = "red", color = "black") +
+geom_line(color = "black") +
+geom_smooth() +
+geom_point(color = "green") +
+geom_text(aes(label = Count, vjust = -0.3), color = "black") +
+scale_x_discrete(guide = guide_axis(angle = 90)) +
+labs(x = "Month", y = "count of  Incident categeory") +
+theme_minimal()
+```
+
+
+
+
+```{r}
+summary(merged_data)
+```
+
+
+
+
+```{r}
+merged_data %>%
+  select(category) %>%
+  count(category, sort = TRUE, name = "Count")
+```
+
+```{r}
+# Create a subset of merged_data containing only "street_name" and "category" columns
+subset_data <- merged_data[, c("date_formatted", "category")]
+
+# Remove rows with missing values
+subset_data <- na.omit(subset_data)
+
+# Plot a bar graph
+barplot(table(subset_data$date_formatted, subset_data$category), 
+        main = "Category Distribution by date_formatted",
+        xlab = "category",
+        ylab = "Count",
+        las = 2, # Rotate x-axis labels vertically
+        col = rainbow(length(unique(subset_data$category))),  # Assign different colors to each category
+        legend = TRUE)  # Show legend
+
+
+```
+
+```{r}
+# Calculate the count and percentage for each category
+d <- merged_data %>%
+  count(category) %>%
+  mutate(perc = round(100 * n / sum(n)))
+
+# Plot the pie chart
+ggplot(data = d, aes(x = "", y = n, fill = category)) + 
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(perc, "%")), position = position_stack(vjust = 0.5)) +
+  labs(fill = 'Category', x = NULL, y = NULL, title = 'Incidents by Category', subtitle = 'Percentage of Total') +
+  coord_polar(theta = "y") +
+  theme_minimal()
+
+```
+
+
+```{r}
+# Remove rows with NA values
+cleaned_data <- na.omit(merged_data[, c("TemperatureCAvg", "TemperatureCMin", "TemperatureCMax", "SnowDepcm")])
+
+# Dot plot with custom color palette and summary statistics
+p <- ggplot(cleaned_data, aes(x = SnowDepcm, color = "TemperatureCAvg")) +
+  geom_point(aes(y = TemperatureCAvg), size = 3) +
+  geom_point(aes(y = TemperatureCMin, color = "TemperatureCMin"), size = 3) +
+  geom_point(aes(y = TemperatureCMax, color = "TemperatureCMax"), size = 3) +
+  scale_color_manual(values = c("TemperatureCAvg" = "#999999", "TemperatureCMin" = "#E69F00", "TemperatureCMax" = "#56B4E9")) +
+  labs(x = "Snow Depth (cm)", y = "Temperature (°C)", color = "Variables") +
+  theme_minimal() +
+  stat_summary(aes(y = TemperatureCAvg), fun = mean, geom = "point", shape = 18, size = 3, color = "red") +  # Add mean points
+  stat_summary(aes(y = TemperatureCAvg), fun = median, geom = "point", shape = 18, size = 3, color = "blue")  # Add median points
+
+# Preview the plot with custom color palette and summary statistics
+p
+
+```
+
+```{r}
+print(colnames(merged_data))
+```
+
+```{r}
+library(patchwork)
+
+# Histogram for WindkmhInt
+hist_windkmhInt <- ggplot(merged_data, aes(x = WindkmhInt)) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black", alpha = 0.6) +
+  labs(title = "WindSpeed(km/h)-Int", x = "Wind Speed (km/h)", y = "Frequency")
+
+# Histogram for WindkmhGust
+hist_windkmhGust <- ggplot(merged_data, aes(x = WindkmhGust)) +
+  geom_histogram(binwidth = 1, fill = "lightgreen", color = "black", alpha = 0.6) +
+  labs(title = "Wind Speed(km/h)-Gust", x = "Wind Speed (km/h)", y = "Frequency")
+
+# Histogram for VisKm
+hist_VisKm <- ggplot(merged_data, aes(x = VisKm)) +
+  geom_histogram(binwidth = 1, fill = "salmon", color = "black", alpha = 0.6) +
+  labs(title = "Visibility(km)", x = "Visibility (km)", y = "Frequency")
+
+# Arrange histograms together
+hist_windkmhInt + hist_windkmhGust + hist_VisKm + plot_layout(ncol = 3)
+
+```
+
+
+
+```{r}
+merged_data <- merged_data[!is.na(merged_data$outcome_status), ]
+summary(merged_data$outcome_status)
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+# Load the ggplot2 package
+library(ggplot2)
+
+# Create a scatter plot with jittered points
+sinaplot <- ggplot(merged_data, aes(x = street_id, y = category)) +
+  geom_jitter(width = 0.3, height = 0.3) +  # Jitter the points to avoid overlap
+  labs(x = "street_id", y = "Category", title = "Sinaplot of Outcome Status and Category")
+
+# Print the sinaplot
+print(sinaplot)
+
+```
+```{r}
+library(ggplot2)
+
+# Create a jitter plot
+ggplot(merged_data, aes(x = date_formatted, y = category)) +
+  geom_jitter(alpha = 0.5) +
+  labs(x = "Date Formatted", y = "category", title = "Relation between Date Formatted and Street Name") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) # Rotate x-axis labels
+
+```
+
+```{r}
+# Calculate the correlation matrix
+correlation_matrix <- cor(merged_data[, c("TemperatureCAvg", "TemperatureCMax", "TemperatureCMin", "SnowDepcm")])
+
+# Visualize the correlation matrix using a heatmap
+library(ggplot2)
+
+# Convert the correlation matrix to a data frame
+correlation_df <- as.data.frame(as.table(correlation_matrix))
+
+# Plot the heatmap
+ggplot(correlation_df, aes(Var1, Var2, fill = Freq)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab",
+                       name="Correlation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + 
+  coord_fixed()
+
+
+```
+
+
+
+```{r}
+print(colnames(merged_data))
+```
+
+
+  
+```{r}
+
+```
+
+
+```{r}
+# Load necessary libraries
+library(plotly)
+library(dplyr)
+
+# Filter out rows with missing street names or categories
+filtered_data <- merged_data %>%
+  filter(!is.na(street_name) & !is.na(category))
+
+# Create scatter plot
+scatter_plot <- plot_ly(filtered_data, x = ~street_name, y = ~category, type = 'scatter', mode = 'markers') %>%
+  layout(title = 'Scatter Plot of Categories by Street Names',
+         xaxis = list(title = 'Street Name'),
+         yaxis = list(title = 'Category'),
+         hovermode = 'closest')
+
+# Print the scatter plot
+scatter_plot
+```
+
+
+```{r}
+# Load necessary libraries
+library(plotly)
+library(dplyr)
+
+# Filter out rows with missing street names or categories
+filtered_data <- merged_data %>%
+  filter(!is.na(street_name) & !is.na(category))
+
+# Aggregate data to count occurrences of each category by street name
+count_data <- filtered_data %>%
+  group_by(street_name, category) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# Create scatter plot
+scatter_plot <- plot_ly(count_data, x = ~street_name, y = ~category, z = ~count,
+                        type = 'scatter3d', mode = 'markers', text = ~paste("Count: ", count)) %>%
+  layout(title = 'Scatter Plot of Categories by Street Names',
+         scene = list(xaxis = list(title = 'Street Name'),
+                      yaxis = list(title = 'Category'),
+                      zaxis = list(title = 'Count')),
+         hovermode = 'closest')
+
+# Print the scatter plot
+scatter_plot
+
+```
+
+
+
+```{r}
+# Time series plot
+ggplot(category_counts, aes(x = date_formatted, y = count, color = category, group = category)) +
+  geom_line() +
+  labs(title = "Crime Trends in Colchester (2023)",
+       x = "Date",
+       y = "Number of Crimes",
+       color = "Category") +
+  theme_minimal()
+
+```
+```{r}
+# Time series plot with smoothing
+ggplot(category_counts, aes(x = date_formatted, y = count, color = category, group = category)) +
+  geom_line() +
+  geom_smooth(method = "auto", se = FALSE) +  # Add smoothing line
+  labs(title = "Crime Trends in Colchester (2023)",
+       x = "Date",
+       y = "Number of Crimes",
+       color = "Category") +
+  theme_minimal()
+
+```
+
+```{r}
+colnames(merged_data) <- paste0("col", 1:5) 
+rownames(merged_data) <- paste0("row", 1:5) 
+  
+# Draw a heatmap 
+heatmap(merged_data)         
+```
+
